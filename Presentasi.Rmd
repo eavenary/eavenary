@@ -1,0 +1,416 @@
+---
+title: "NaiveBayer"
+author: "Fauzan Hanif, Course-net (fauzan.hanif19@gmail.com) "
+output: html_document
+---
+
+## 1. Latar Belakang Data 
+
+data adalah data mengenai kanker payudara (breast cancer) dari University of Wisconsin, berikut adalah daftar pustaka dari data yang digunakan
+
+1. O. L. Mangasarian and W. H. Wolberg: "Cancer diagnosis via linear 
+      programming", SIAM News, Volume 23, Number 5, September 1990, pp       1 & 18.
+2. William H. Wolberg and O.L. Mangasarian: "Multisurface method of 
+        pattern separation for medical diagnosis applied to breast cytology", Proceedings of the National Academy of Sciences, U.S.A., Volume 87, December 1990, pp 9193-9196.
+3. O. L. Mangasarian, R. Setiono, and W.H. Wolberg: "Pattern recognition via linear programming: Theory and application to medical diagnosis", in: "Large-scale numerical optimization", Thomas F. Coleman and Yuying Li, editors, SIAM Publications, Philadelphia 1990, pp 22-30.
+4. K. P. Bennett & O. L. Mangasarian: "Robust linear programming discrimination of two linearly inseparable sets", Optimization Methods and Software 1, 1992, 23-34 (Gordon & Breach Science Publishers).
+
+terdapat 11 feature dalam data dimana 10 feature akan menunjukkan klasifikasi jinak atau ganas.
+
+## 2. ETL (Extract, Transform, Load)
+
+mengambil data dari [link](https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/) yang sudah disediakan.
+
+```{r}
+filename <- "https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/breast-cancer-wisconsin.data"
+df <- read.csv(filename, sep = ",", header = FALSE)
+```
+
+cek apakah data yang diambil sudah benar.
+
+```{r}
+head(df)
+```
+
+nama feature disesuaikan dengan arahan data, dikarenakan data yang didapatkan belum memiliki nama feature.
+
+```{r}
+colnames(df) <- c("ID", "KetebalanGumpalan", "UkuranSelGab", "BentukSelGab", "AdhesiMarginal", "UkuranSelTunggal", "BareNuclei", "Kromatin", "NormalNucleoli", "Mitosis", "Class")
+```
+
+melihat nama fitur yang sudah diganti
+
+```{r}
+head(df)
+```
+
+
+## 2. Cleaning Data
+
+penghilangan fitur yang dirasa dapat dihilangkan karena dapat mengganggu proses pengolahan data. feature ID akan dihilangkan.
+
+```{r}
+df$ID <- NULL
+```
+
+dilihat apakah ada na dari `summary()`
+
+```{r}
+summary(df)
+```
+
+```{r}
+table(df$BareNuclei)
+```
+
+
+terlihat feature BareNuclei memiliki nilai "?" dan berbentuk kategorikal.
+
+### a. Data NA
+
+feature BareNuclei memiliki nilai "?" maka diganti terlebih dahulu menjadi NA menggunakan function `gsub()` kemudian data diubah menjadi numeric menggunakn `as.numeric()`
+
+```{r}
+df$BareNuclei <- gsub("?", NA, df$BareNuclei, fixed = TRUE)
+df$BareNuclei <- strtoi(df$BareNuclei)
+colSums(is.na(df))
+summary(df)
+```
+
+
+dalam cleaning NA jika feature tersebut adalah bukan kategorikal dan tidak memiliki outlier digunakan nilai `mean()`. berikut adalah pengecekan outlier menggunakan `boxplot()`
+
+```{r}
+boxplot(df$BareNuclei,
+        main = 'Plot Bare Nuclei')
+```
+
+BareNuclei tidak memiliki outlier. hal ini mengindikasikan bahwa nilai NA (not avaiable) diganti dengan nilai `mean()`
+
+```{r}
+df$BareNuclei[is.na(df$BareNuclei)] <- mean(df$BareNuclei, na.rm = TRUE)
+colSums(is.na(df))
+```
+
+### b. Periksa _unary_
+
+pemeriksaan _unary_ menggunakan `summary()` dilihat apakah ada data yang nilai `summary()` sama pada seluruh hasilnya.
+
+```{r}
+summary(df)
+```
+
+data tidak memiliki _unary_
+
+### c. Melihat Korelasi Data
+
+menggunakan `cor()`
+
+```{r}
+correlation <- round(cor(df), 2)
+correlation
+```
+
+menggunakan grafik agar lebih mudah dipahami orang.
+
+```{r}
+library(gplots)
+library(ggplot2)
+heatmap.2(correlation,
+          cellnote = round(correlation, 2),
+          notecol = "black",
+          dendrogram = "none",
+          col = colorRampPalette(c("blue","white","red"))(n = 11)
+          )
+corrplot::corrplot.mixed(correlation, tl.pos = "lt", tl.col = "black")
+```
+
+mari kita fokus pada korelasi terhadap feature Class (feature target kita). terlihat bahwa seluruh nilai korelasi bernilai positif, artinya peningkatan variabel independen akan meningkatkan variabel target, begitu juga sebaliknya jika penurunan variabel independen.
+
+nilai korelasi pada seluruh feature terhadap class bernilai diatas 0.5 kecuali feature Mitosis artinya korelasi sudah cukup kuat. namun pada kasus feature mitosis, feature mitosis tetap dimasukan karena nilai korelasi masih cukup tidak mendekati 0.
+
+# 3. Analisa Statistika Deskriptif
+
+## a. melihat data ekstrim
+
+melihat data ekstrim menggunakan `boxplot()`
+
+```{r}
+boxplot(df, main = "Boxplot df")
+```
+
+dapat dilihat bahwa adhesi marginal, ukuran sel tunggal, kromatin, normal nuclei,dan mitosis memiliki outlier. terlihat data-data tersebut memiliki ketidaknormalan.
+
+## b. Uji Kenormalan
+
+agar mengetahui sejauh mana tingkat kenormalan akan dilihat dari nilai skew dan kurtosis melalui `describe()`
+
+```{r}
+library(psych)
+describe(df)
+```
+
+dapat dilihat pada nilai skew dan kurtosis bahwa adhesi marginal, ukuran sel tunggal, kromatin, normal nuclei,dan mitosis berbeda-beda.
+
+1. adhesi marginal
+
+skew bernilai 1.52 dan kurtosis 0.96 artinya data condong mlenceng ke kiri data normal dan sebaran data menyebar relatif mendekati normal (kurtosis = 0).
+
+2. ukuran sel tunggal
+
+skew bernilai 1.70 dan kurtosis 2.13 artinya data condong mlenceng ke kiri data normal dan sebaran data berkumpul pada suatu nilai.
+
+3. kromatin
+
+skew bernilai 1.10 dan kurtosis 0.17 artinya data condong mlenceng ke kiri data normal dan sebaran data menyebar relatif mendekati normal (kurtosis = 0).
+
+4. normal nuclei
+
+skew bernilai 1.42 dan kurtosis 0.45 artinya data condong mlenceng ke kiri data normal dan sebaran data menyebar relatif mendekati normal (kurtosis = 0).
+
+5. mitosis
+
+skew bernilai 3.55 dan kurtosis 12.51 artinya data condong mlenceng ke kiri data normal dan sebaran data berkumpul pada suatu nilai relatif lebih tinggi daripada feature ukuran sel tunggal.
+
+dilihat melalui grafik pada masing-masing feature terhadap kurva normalitasnya
+
+```{r}
+plot(density(df$AdhesiMarginal), 
+     main = "Histogram Adhesi Marginal",
+     col = "red")
+abline(v = median(df$AdhesiMarginal), col="red", lwd=2, lty=1)
+abline(v = mean(df$AdhesiMarginal), col="red", lwd=2, lty=2)
+par(new=TRUE)
+#bikin distribusi normal
+x <- seq(min(df$AdhesiMarginal), max(df$AdhesiMarginal), length=100)
+y <- dnorm(x, mean=mean(df$AdhesiMarginal), sd=sd(df$AdhesiMarginal)/2)
+plot(x, y, type="l", lwd=1, xlab = "", ylab="", main="", col="blue", axes = FALSE)
+
+plot(density(df$UkuranSelTunggal), 
+     main = "Histogram Ukuran Sel Tunggal", 
+     col = "red")
+abline(v = median(df$UkuranSelTunggal), col="red", lwd=2, lty=1)
+abline(v = mean(df$UkuranSelTunggal), col="red", lwd=2, lty=2)
+par(new=TRUE)
+#bikin distribusi normal
+x <- seq(min(df$UkuranSelTunggal), max(df$UkuranSelTunggal), length=100)
+y <- dnorm(x, mean=mean(df$UkuranSelTunggal), sd=sd(df$UkuranSelTunggal)/2)
+plot(x, y, type="l", lwd=1, xlab = "", ylab="", main="", col="blue", axes = FALSE)
+
+plot(density(df$Kromatin), 
+     main = "Histogram Kromatin", 
+     col = "red")
+abline(v = median(df$Kromatin), col="red", lwd=2, lty=1)
+abline(v = mean(df$Kromatin), col="red", lwd=2, lty=2)
+par(new=TRUE)
+#bikin distribusi normal
+x <- seq(min(df$Kromatin), max(df$Kromatin), length=100)
+y <- dnorm(x, mean=mean(df$Kromatin), sd=sd(df$Kromatin)/2)
+plot(x, y, type="l", lwd=1, xlab = "", ylab="", main="", col="blue", axes = FALSE)
+
+plot(density(df$NormalNucleoli), 
+     main = "Histogram Normal Nucleoli", 
+     col = "red")
+abline(v = median(df$NormalNucleoli), col="red", lwd=2, lty=1)
+abline(v = mean(df$NormalNucleoli), col="red", lwd=2, lty=2)
+par(new=TRUE)
+#bikin distribusi normal
+x <- seq(min(df$NormalNucleoli), max(df$NormalNucleoli), length=100)
+y <- dnorm(x, mean=mean(df$NormalNucleoli), sd=sd(df$NormalNucleoli)/2)
+plot(x, y, type="l", lwd=1, xlab = "", ylab="", main="", col="blue", axes = FALSE)
+
+plot(density(df$Mitosis), 
+     main = "Histogram Mitosis", 
+     col = "red")
+abline(v = median(df$Mitosis), col="red", lwd=2, lty=1)
+abline(v = mean(df$Mitosis), col="red", lwd=2, lty=2)
+par(new=TRUE)
+#bikin distribusi normal
+x <- seq(min(df$Mitosis), max(df$Mitosis), length=100)
+y <- dnorm(x, mean=mean(df$Mitosis), sd=sd(df$Mitosis)/2)
+plot(x, y, type="l", lwd=1, xlab = "", ylab="", main="", col="blue", axes = FALSE)
+
+```
+
+## c. Pencarian Wawasan
+
+```{r}
+plot(df$UkuranSelGab, df$BentukSelGab, 
+     main = "gambar 1. Plot Ukuran Sel Gab dan Bentuk Sel Gab thd Indikator kanker", 
+     xlab = "Ukuran Sel Gab", 
+     ylab = "Bentuk Sel Gab")
+points(df$UkuranSelGab[df$Class==4], df$BentukSelGab[df$Class==4], 
+       col="red", 
+       pch= 19)
+
+plot(df$UkuranSelGab, df$BareNuclei, 
+     main = "gambar 2 Plot UkuranSelGab dan BareNuclei thd Indikator kanker", 
+     xlab = "Ukurang sel Gab", 
+     ylab = "Bare Nuclei")
+points(df$UkuranSelGab[df$Class==4], df$BareNuclei[df$Class==4], 
+       col="red", 
+       pch= 19)
+
+plot(df$BentukSelGab, df$BareNuclei, 
+     main = "gambar 3 Plot Bentuk Sel Gab dan Bare Nuclei thd Indikator kanker", 
+     xlab = "Bentuk Sel Gab", 
+     ylab = "Bare Nuclei")
+points(df$BentukSelGab[df$Class==4], df$BareNuclei[df$Class==4], 
+       col="red", 
+       pch= 19)
+
+plot(df$KetebalanGumpalan, df$BareNuclei, 
+     main = "gambar 4 Plot KetebalanGumpalan dan Bare Nuclei thd Indikator kanker", 
+     xlab = "Ketebalan Gumpalan", 
+     ylab = "Bare Nuclei")
+points(df$KetebalanGumpalan[df$Class==4], df$BareNuclei[df$Class==4], 
+       col="red", 
+       pch= 19)
+
+plot(df$KetebalanGumpalan, df$UkuranSelGab, 
+     main = "gambar 5 Plot KetebalanGumpalan dan UkuranSelGab thd Indikator kanker", 
+     xlab = "Ketebalan Gumpalan", 
+     ylab = "Ukuran Sel Gab")
+points(df$KetebalanGumpalan[df$Class==4], df$UkuranSelGab[df$Class==4], 
+       col="red", 
+       pch= 19)
+```
+
+Wawasan melihat hubunga antara bentuk sel gabungan, ukuran sel gabungan, Bare nuclei, dan ketebalan gumpalan. feature ini diambil berdasarkan nilai korelasi paling besar diantara feature lainnya.
+
+1. gambar 1 Terdapat persamaan pola antara ukuran sel gabungan dengan bentuk sel gabungan. dapat dilihat bahwa pola kanker ganas semakin meningkat sejalan dengan peningkatan bentuk dan ukuran sel gabungan.
+2. pada gambar 3 bentuk sel gabungan kanker jinak berkumpul pada suatu pola, namun ada yang menyebar sedikit. hal ini sama dengan bare nulcei dengan ukuran sel gabungan yaitu pada Gambar 2.
+3. gambar 4 pada tingkat ketebalan < 5 dan bare nuclei <5 pola kanker jinak berkumpul. pada tingkat bare nuclei 10 menunjukkan kanker ganas pada seluruh ketebalan gumpalan.
+4. pada gambar 4 dan 5 terdapat kesamaan pada tingkat ketebalan 10 terdapat penuh kanker ganas mengidikasikan bahwa pada tiap ukuran dan bentuk sel gabungan 1 - 10 pada tingkat ketebalan 10 terdapat indikasi kanker ganas.
+
+
+# 4. fitting
+
+membelah data menjadi test dan train. disini saya membagi data train dan test menjadi 90:10 didasarkan bahwa saya ingin mentrain dengan jumlah data yang banyak dengan harapan tingkat akurasi akan tinggi.
+
+```{r}
+library(caTools)
+set.seed(965)
+
+split <- sample.split(df, SplitRatio = 0.8
+                      )
+train <- subset(df, split == TRUE)
+test <- subset(df, split == FALSE)
+```
+
+Melakukan Naive Bayes dengan `naiveBayes()` menggunakan data _train_
+
+```{r}
+library(e1071)
+nb <- naiveBayes(as.factor(Class) ~ . , data = train)
+nb
+```
+
+## mengukur kinerja model
+
+membentuk linear regresi model
+
+```{r}
+lm <- lm(Class ~ ., data = train)
+lm
+```
+
+
+### 1. uji homoskedastisitas
+
+```{r}
+
+library(lmtest)
+bptest(lm)
+```
+
+**p value bernilai dibawah 0.05, artinya  terdapat heteroskedastisitas**
+
+### 2. uji multikolinearitas
+
+```{r}
+library(car)
+vif(lm)
+```
+
+**VIF bernilai diatas 5, artinya terdapat multikolinearitas**
+
+### 3. membuat prediksi
+
+membuat variabel prediksi
+
+```{r}
+prediksi <- predict(nb, newdata = test, type = "class")
+prediksi
+```
+
+membuat variabel kenyataan untuk dibandingkan dengan prediksi
+
+```{r}
+kenyataan <- test$Class
+kenyataan
+```
+
+membandingkan prediksi dan kenyataan agar mendapatkan akurasi dengan menggunakan `confusionMatrix`
+
+```{r}
+library(caret)
+confusionMatrix(table(prediksi, kenyataan))
+```
+
+### **dapat disimpulkan bahwa model dapat memprediksi dengan akurasi sebesar 96.4%**
+
+### perbaikan dengan menghilangkan feature yang multikolinear
+
+dilihat dari nilai VIF feature ukuran dan bentuk sel gabungan memiliki multikolinear, dan telah diduga dari table plot. maka dilakukan penghapusan feature ukuran sel gabungan.
+
+```{r}
+df2 <- df[c(1,3,4,5,6,7,8,9,10)]
+```
+
+```{r}
+library(caTools)
+set.seed(965)
+
+split <- sample.split(df2, SplitRatio = 0.8
+                      )
+train2 <- subset(df2, split == TRUE)
+test2 <- subset(df2, split == FALSE)
+```
+
+```{r}
+library(e1071)
+nb2 <- naiveBayes(as.factor(Class) ~ . , data = train2)
+nb2
+```
+
+```{r}
+prediksi2 <- predict(nb2, newdata = test2, type = "class")
+prediksi2
+```
+
+```{r}
+kenyataan2 <- test2$Class
+kenyataan2
+```
+
+```{r}
+library(caret)
+confusionMatrix(table(prediksi2, kenyataan2))
+```
+
+|data    |akurasi 
+|------  |:-----:
+|sebelum |**96.4%**
+|sesudah |**97.4%**
+
+##### dapat dilihat bahwa nilai **akurasi meningkat** setelah dilakukan penghilangan feature yang memiliki multikolinearitas. dan model naive bayes sangat penting untuk melihat uji multikolinearitasnya
+
+
+```{r}
+contoh <- df$KetebalanGumpalan
+contoh <- sort(contoh)
+
+rownames(contoh)
+```
+
